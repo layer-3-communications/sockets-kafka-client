@@ -1,0 +1,37 @@
+cabal-version: 3.4
+name: sockets-kafka-client
+version: 0.1.0.0
+license: BSD-3-Clause
+license-file: LICENSE
+author: Andrew Martin
+maintainer: amartin@layer3com.com
+category: Data
+build-type: Simple
+extra-doc-files: CHANGELOG.md
+
+library channel-instantiation
+  exposed-modules: Channel.Socket
+  build-depends:
+    , base >=4.16.4.0
+    , sockets >=0.6.1
+    , text >=2.0
+    , kafka-interchange
+    , byteslice >=0.2.8
+    , primitive >=0.8
+  hs-source-dirs: src-channel-instantiation
+  default-language: GHC2021
+
+library
+  mixins:
+    kafka-interchange:exchange-all
+      (Client as Socket.Stream.Kafka.Exchange)
+      requires
+      (Channel as Channel.Socket)
+  build-depends:
+    , base >=4.16.4.0
+    , sockets-kafka-client:channel-instantiation
+    , kafka-interchange:exchange-all
+  hs-source-dirs: src
+  exposed-modules:
+    Socket.Stream.Kafka
+  default-language: GHC2021
