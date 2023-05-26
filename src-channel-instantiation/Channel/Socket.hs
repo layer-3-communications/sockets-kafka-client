@@ -68,8 +68,10 @@ bindM (M f) g = M $ \x y z -> f x y z >>= \case
 clientId :: M Text
 clientId = M (\_ x c -> pure (pure (Output c x)))
 
+-- When the correlation id overflows, this sets it to zero
+-- rather than a high-magnitude negative integer.
 nextCorrelationId :: M Int32
-nextCorrelationId = M (\_ _ c -> pure (pure (Output (c+1) c)))
+nextCorrelationId = M (\_ _ c -> pure (pure (Output (max 0 (c+1)) c)))
 
 throw :: Error -> M a
 throw e = M (\_ _ _ -> pure (Left e))

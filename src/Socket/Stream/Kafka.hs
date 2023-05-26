@@ -13,6 +13,8 @@ module Socket.Stream.Kafka
   , X.metadataV12
   , X.produceV9
   , X.syncGroupV5
+  , X.leaveGroupV5
+  , X.heartbeatV4
   ) where
 
 -- Note: We could instead do a module reexport for
