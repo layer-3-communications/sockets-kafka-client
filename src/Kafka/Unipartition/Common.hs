@@ -1,6 +1,7 @@
 {-# language DuplicateRecordFields #-}
 {-# language MultiWayIf #-}
 {-# language LambdaCase #-}
+{-# language PatternSynonyms #-}
 {-# language OverloadedRecordDot #-}
 
 module Kafka.Unipartition.Common
@@ -38,6 +39,7 @@ import Kafka.Record.Response (Record)
 import Kafka.RecordBatch.Response (RecordBatch)
 import ResolveHostname (query)
 import Socket.Stream.IPv4 (Peer)
+import Kafka.ErrorCode (pattern None,pattern MemberIdRequired)
 
 import qualified Data.Bytes.Chunks as Chunks
 import qualified Data.Bytes as Bytes
@@ -116,7 +118,7 @@ connectToCoordinator host port consumerGroupName topicName = do
   when (PM.sizeofSmallArray resp1.coordinators > 1) $
     ExceptT (pure (Left Error{context=ApiKey.FindCoordinator,message=Error.TooManyCoordinators}))
   let coordinator = PM.indexSmallArray resp1.coordinators 0
-  when (coordinator.errorCode /= 0) $
+  when (coordinator.errorCode /= None) $
     ExceptT (pure (Left Error{context=ApiKey.FindCoordinator,message=Error.CoordinatorErrorCode coordinator.errorCode}))
   when (coordinator.port < 0 || coordinator.port >= 65536) $
     ExceptT (pure (Left Error{context=ApiKey.FindCoordinator,message=Error.CoordinatorPort}))
@@ -170,9 +172,9 @@ twoPhaseJoin envCoord topicName consumerGroupName groupInstanceId partitionIndex
       ExceptT (pure (Left Error{context=ApiKey.JoinGroup,message=Error.NullMemberId}))
     case errorCodeA of
       -- Server boundes us and we have to make a second request.
-      79 -> pure (memberId,Nothing,resp0)
+      MemberIdRequired -> pure (memberId,Nothing,resp0)
       -- Added immidiately. No second request needed
-      0 -> pure (memberId,Just generationId,resp0)
+      None -> pure (memberId,Just generationId,resp0)
       -- A real error happened
       _ -> ExceptT (pure (Left Error{context=ApiKey.JoinGroup,message=Error.CoordinatorDidNotRequireMemberId errorCodeA memberId}))
   -- When mgenerationId is Nothing, we have not actually joined the group yet,
@@ -182,7 +184,7 @@ twoPhaseJoin envCoord topicName consumerGroupName groupInstanceId partitionIndex
     Nothing -> do
       resp1@JoinGroup.Response.Response{errorCode=errorCodeB,generationId,members} <- ExceptT $ K.joinGroupV9 envCoord
         $ buildJoinGroupRequest topicName consumerGroupName memberId groupInstanceId partitionIndex
-      when (errorCodeB /= 0) $
+      when (errorCodeB /= None) $
         ExceptT (pure (Left Error{context=ApiKey.JoinGroup,message=Error.CoordinatorErrorCode errorCodeB}))
       pure resp1
 
@@ -263,7 +265,7 @@ findImportantMetadata !name !partitionIndex resp = do
   when (PM.sizeofSmallArray resp.topics < 1) (Left Error.ResponseMissingTopics)
   when (PM.sizeofSmallArray resp.topics > 1) (Left Error.ResponseTooManyTopics)
   let topic = PM.indexSmallArray resp.topics 0
-  when (topic.errorCode /= 0) (Left (Error.ResponseTopicErrorCode topic.errorCode))
+  when (topic.errorCode /= None) (Left (Error.ResponseTopicErrorCode name topic.errorCode))
   when (topic.name /= name) (Left Error.UnexpectedTopicName)
   case find (\p -> p.index == partitionIndex) topic.partitions of
     Nothing -> Left Error.MissingPartition
@@ -287,7 +289,7 @@ findImportantMetadataWithoutPartition !name resp = do
   when (PM.sizeofSmallArray resp.topics < 1) (Left Error.ResponseMissingTopics)
   when (PM.sizeofSmallArray resp.topics > 1) (Left Error.ResponseTooManyTopics)
   let topic = PM.indexSmallArray resp.topics 0
-  when (topic.errorCode /= 0) (Left (Error.ResponseTopicErrorCode topic.errorCode))
+  when (topic.errorCode /= None) (Left (Error.ResponseTopicErrorCode name topic.errorCode))
   when (topic.name /= name) (Left Error.UnexpectedTopicName)
   Right ImportantMetadata
     { uuid=topic.id

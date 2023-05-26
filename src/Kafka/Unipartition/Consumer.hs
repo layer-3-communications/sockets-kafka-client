@@ -1,7 +1,8 @@
 {-# language DuplicateRecordFields #-}
-{-# language MultiWayIf #-}
 {-# language LambdaCase #-}
+{-# language MultiWayIf #-}
 {-# language OverloadedRecordDot #-}
+{-# language PatternSynonyms #-}
 
 module Kafka.Unipartition.Consumer
   ( Environment
@@ -11,11 +12,11 @@ module Kafka.Unipartition.Consumer
 
 import Kafka.Unipartition.Common
 
-import Control.Monad.ST.Run (runByteArrayST)
-import Channel.Error (Role(BootstrapServer,GroupCoordinator,PartitionHost))
 import Channel.Error (Error(Error))
+import Channel.Error (Role(BootstrapServer,GroupCoordinator,PartitionHost))
 import Control.Concurrent (threadDelay)
 import Control.Monad (join,when,forever)
+import Control.Monad.ST.Run (runByteArrayST)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT(ExceptT),runExceptT,throwE)
 import Data.Bifunctor (first)
@@ -30,10 +31,11 @@ import Data.Text.Short (ShortText)
 import Data.WideWord (Word128)
 import Data.Word (Word16)
 import Kafka.ApiKey (ApiKey)
+import Kafka.ErrorCode (pattern None,pattern OffsetOutOfRange)
 import Kafka.Record.Response (Record)
 import Kafka.RecordBatch.Response (RecordBatch)
-import Socket.Stream.IPv4 (Peer)
 import ResolveHostname (query)
+import Socket.Stream.IPv4 (Peer)
 
 import qualified Data.Bytes.Chunks as Chunks
 import qualified Data.Bytes as Bytes
@@ -138,7 +140,7 @@ connect host port consumerGroupName topicName !partitionIndex = runExceptT $ do
   () <- do
     resp <- ExceptT $ K.syncGroupV5 envCoord
       $ buildSyncGroup topicName consumerGroupName memberId groupInstanceId partitionIndex generationId
-    when (resp.errorCode /= 0) $
+    when (resp.errorCode /= None) $
       ExceptT (pure (Left Error{context=ApiKey.SyncGroup,message=Error.SyncGroupErrorCode}))
     when (resp.protocolName /= protocolName) $
       ExceptT (pure (Left Error{context=ApiKey.SyncGroup,message=Error.UnexpectedGroupProtocol}))
@@ -221,7 +223,7 @@ connect host port consumerGroupName topicName !partitionIndex = runExceptT $ do
         , maxBytes = 1048576
         }
       }
-  when (fetchResp.errorCode /= 0 && fetchResp.errorCode /= 1) (throwE Error{context=ApiKey.Fetch,message=Error.ErrorCode fetchResp.errorCode})
+  when (fetchResp.errorCode /= None && fetchResp.errorCode /= OffsetOutOfRange) (throwE Error{context=ApiKey.Fetch,message=Error.ErrorCode fetchResp.errorCode})
   when (fetchResp.sessionId == 0) (throwE Error{context=ApiKey.Fetch,message=Error.FetchSessionIdZero})
   statusRef <- lift $ newIORef $! Healthy $! State
     { fetchSessionEpoch = 1
@@ -278,14 +280,14 @@ fetch e = do
         Left err -> pure (Left err)
         Right resp
           | resp.sessionId /= e.fetchSessionId -> finishWithError Error.IncorrectSessionId
-          | resp.errorCode /= 0 -> finishWithError (Error.ResponseErrorCode resp.errorCode)
+          | resp.errorCode /= None -> finishWithError (Error.ResponseErrorCode resp.errorCode)
           | PM.sizeofSmallArray resp.topics >= 2 -> finishWithError Error.ResponseTooManyTopics
           | PM.sizeofSmallArray resp.topics == 0 -> finishNoRecords
           | Fetch.Response.Topic{partitions} <- PM.indexSmallArray resp.topics 0 ->
               if | PM.sizeofSmallArray partitions == 0 -> finishNoRecords
                  | PM.sizeofSmallArray partitions >= 2 -> finishWithError Error.ResponseTooManyPartitions
                  | prt <- PM.indexSmallArray partitions 0 ->
-                     if | prt.errorCode /= 0 -> finishWithError (Error.PartitionErrorCode prt.errorCode)
+                     if | prt.errorCode /= None -> finishWithError (Error.PartitionErrorCode prt.errorCode)
                         | otherwise -> case traverse recordBatchToRecords prt.records of
                             Left err -> finishWithError err
                             Right xs -> do

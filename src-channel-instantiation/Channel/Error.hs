@@ -22,6 +22,8 @@ import Data.Text (Text)
 import Data.Text.Short (ShortText)
 import Socket.Stream.IPv4 (CloseException,ConnectException,SendException,ReceiveException,Interruptibility(Uninterruptible),Family(Internet),Version(V4))
 
+import qualified Kafka.ErrorCode as K
+
 data Error = Error
   { context :: !ApiKey
     -- ^ What kind of request to Kafka led to a problem.
@@ -42,8 +44,8 @@ data Message
   | ReceiveLength !(ReceiveException 'Uninterruptible)
   | ReceiveBody !(ReceiveException 'Uninterruptible)
   | IncorrectSessionId
-  | ResponseErrorCode !Int16
-  | PartitionErrorCode !Int16
+  | ResponseErrorCode !K.ErrorCode
+  | PartitionErrorCode !K.ErrorCode
   | ResponseTooManyPartitions
   | ResponseTooManyTopics
   | ResponseMissingTopics
@@ -51,8 +53,10 @@ data Message
   | MissingCoordinators
   | CoordinatorPort
     -- ^ The coordinator uses a port that is outside of the 16-bit port range
-  | ResponseTopicErrorCode !Int16
-  | CoordinatorErrorCode !Int16
+  | ResponseTopicErrorCode
+      !Text -- topic name
+      !K.ErrorCode
+  | CoordinatorErrorCode !K.ErrorCode
   | MalformedRecords
   | MissingLatestOffset
   | MissingEarliestOffset
@@ -68,7 +72,7 @@ data Message
   | AssignmentTopicCount
   | AssignmentPartitionCount
   | CoordinatorDidNotRequireMemberId
-      !Int16 -- error code
+      !K.ErrorCode -- error code
       !Text -- member id returned by coordinator
   | NullMemberId
   | MissingBroker !Int32
@@ -81,7 +85,7 @@ data Message
   | UnexpectedPartitionCount
   | UnexpectedTopicCount
   | UnexpectedGroupCount
-  | ErrorCode !Int16
+  | ErrorCode !K.ErrorCode
   | HostnameResolution
       Role
       !ShortText -- hostname that could not be resolved

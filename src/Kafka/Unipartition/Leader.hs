@@ -2,6 +2,7 @@
 {-# language MultiWayIf #-}
 {-# language LambdaCase #-}
 {-# language OverloadedRecordDot #-}
+{-# language PatternSynonyms #-}
 
 module Kafka.Unipartition.Leader
   ( Environment
@@ -18,11 +19,11 @@ module Kafka.Unipartition.Leader
 
 import Kafka.Unipartition.Common
 
-import Control.Monad.ST.Run (runByteArrayST)
-import Channel.Error (Role(BootstrapServer,GroupCoordinator,PartitionHost))
 import Channel.Error (Error(Error))
+import Channel.Error (Role(BootstrapServer,GroupCoordinator,PartitionHost))
 import Control.Concurrent (threadDelay)
 import Control.Monad (join,when,forever)
+import Control.Monad.ST.Run (runByteArrayST)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT(ExceptT),runExceptT,throwE)
 import Data.Bifunctor (first)
@@ -37,10 +38,11 @@ import Data.Text.Short (ShortText)
 import Data.WideWord (Word128)
 import Data.Word (Word16)
 import Kafka.ApiKey (ApiKey)
+import Kafka.ErrorCode (pattern None,pattern RebalanceInProgress)
 import Kafka.Record.Response (Record)
 import Kafka.RecordBatch.Response (RecordBatch)
-import Socket.Stream.IPv4 (Peer)
 import ResolveHostname (query)
+import Socket.Stream.IPv4 (Peer)
 
 import qualified Data.Bytes.Chunks as Chunks
 import qualified Data.Bytes as Bytes
@@ -193,7 +195,7 @@ attemptLead env = runExceptT $ do
                | otherwise -> Nothing
           ) joinResp.members
         }
-      when (resp.errorCode /= 0) $ do
+      when (resp.errorCode /= None) $ do
         throwE Error{context=ApiKey.SyncGroup,message=Error.ErrorCode resp.errorCode}
       pure $ Just Membership
         { memberId = joinResp.memberId
@@ -249,10 +251,10 @@ heartbeat env mbr = do
   case eresp of
     Left err -> pure (Left err)
     Right resp -> case resp.errorCode of
-      0 -> pure (pure Stable)
+      None -> pure (pure Stable)
       -- On a rebalance, we break out of the heartbeat loop and
       -- rejoin the group.
-      27 -> pure (pure Rebalancing)
+      RebalanceInProgress -> pure (pure Rebalancing)
       _ -> pure (Left Error{context=ApiKey.Heartbeat,message=Error.ErrorCode resp.errorCode})
   
 buildFetchRequest ::
